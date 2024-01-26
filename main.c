@@ -12,6 +12,10 @@
 
 void error_handling(char* message);
 void* request_handler(void *arg);
+void send_error(FILE* fp);
+void send_data(FILE* fp, char* ct, char* file_name);
+char* content_type(char* file);
+
 
 int main(int argc, char *argv[]) {
     int serv_sock, clnt_sock;
@@ -58,7 +62,8 @@ int main(int argc, char *argv[]) {
 }
 
 void error_handling(char* message) {
-    perror(message);
+    fputs(message, stderr);
+    fputc('\n', stderr);
     exit(EXIT_FAILURE);
 }
 
@@ -72,7 +77,109 @@ void* request_handler(void *arg){
     char ct[15];
     char file_name[30];
 
+    clnt_read = fdopen(clnt_sock, "r");
+    clnt_write = fdopen(dup(clnt_sock), "w");
+
+    fgets(req_line, SMALL_BUF, clnt_read);
+
+    if(strstr(req_line, "HTTP/")==NULL){
+        send_error(clnt_write);
+        fclose(clnt_read);
+        fclose(clnt_write);
+        return NULL;
+    }
+
+    strcpy(method, strtok(req_line, " /"));
+    if(strcmp(method, "GET")!=0) //GET way request?
+    {
+        send_error(clnt_write);
+        fclose(clnt_read);
+        fclose(clnt_write);
+        return NULL;
+    }
+
+    strcpy(file_name, strtok(NULL, " /"));
+    strcpy(ct, content_type(file_name));
+    fclose(clnt_read);
+
+    send_data(clnt_write, ct, file_name);
+
+    return NULL;
+
+}
+
+void send_data(FILE* fp, char* ct, char* file_name) {
+    char protocol[] = "HTTP/1.0 200 OK\r\n";
+    char server[] = "Server: Simple HTTP Server\r\n";
+    char cnt_len[SMALL_BUF];
+    char cnt_type[SMALL_BUF];
+    char buf[BUF_SIZE];
+    FILE* send_file;
+
+    // Send the HTTP response header
+    sprintf(cnt_type, "Content-type: %s\r\n\r\n", ct);
+    send_file = fopen(file_name, "r");
+    if (send_file == NULL) {
+        send_error(fp);
+        return;
+    }
+
+    fseek(send_file, 0, SEEK_END);
+    int fsize = ftell(send_file);
+    fseek(send_file, 0, SEEK_SET);
+    sprintf(cnt_len, "Content-length: %d\r\n", fsize);
+    fputs(protocol, fp);
+    fputs(server, fp);
+    fputs(cnt_len, fp);
+    fputs(cnt_type, fp);
+
+    // Send the content of the requested file
+    while (!feof(send_file)) {
+        size_t read_size = fread(buf, 1, sizeof(buf), send_file);
+        if (read_size < 0) {
+            perror("fread");
+            break;
+        }
+        fwrite(buf, 1, read_size, fp);
+        fflush(fp);
+    }
+
+    fflush(fp);
+    fclose(send_file);
+}
 
 
+void send_error(FILE* fp) {
+    char protocol[] = "HTTP/1.0 400 Bad Request\r\n";
+    char server[] = "Server: Simple HTTP Server\r\n";
+    char cnt_len[] = "Content-length:2048\r\n";
+    char cnt_type[] = "Content-type:text/html\r\n\r\n";
+    char content[] = "<html><head><title>NETWORK</title></head>"
+                     "<body><font size=+5><br>Whoops, something went wrong!</font>"
+                     "</body></html>";
 
+    fputs(protocol, fp);
+    fputs(server, fp);
+    fputs(cnt_len, fp);
+    fputs(cnt_type, fp);
+    fputs(content, fp);
+    fflush(fp);
+}
+
+
+char* content_type(char* file) {
+    char extension[SMALL_BUF];
+    char file_name[SMALL_BUF];
+    strcpy(file_name, file);
+    strtok(file_name, ".");
+    strcpy(extension, strtok(NULL, "."));
+
+    if (strcmp(extension, "html") == 0 || strcmp(extension, "htm") == 0)
+        return "text/html";
+    else if (strcmp(extension, "jpg") == 0 || strcmp(extension, "jpeg") == 0)
+        return "image/jpeg";
+    else if (strcmp(extension, "gif") == 0)
+        return "image/gif";
+    else
+        return "text/plain";
 }
