@@ -1,12 +1,17 @@
 #include <stdio.h>
-#include <netinet/in.h>
 #include <stdlib.h>
-#include <string.h>
-#include <arpa/inet.h>  // Include this header for inet_ntop
-#include <pthread.h>
 #include <unistd.h>
+#include <string.h>
 
-#define BUF_SIZE 1024
+#include <arpa/inet.h>  // Include this header for inet_ntop
+#include <sys/socket.h>
+#include <netinet/in.h>
+
+
+#include <pthread.h>
+
+
+#define BUF_SIZE 9000
 
 #define SMALL_BUF 100
 
@@ -66,8 +71,7 @@ void error_handling(char* message) {
     fputc('\n', stderr);
     exit(EXIT_FAILURE);
 }
-
-void* request_handler(void *arg){
+void* request_handler(void *arg) {
     int clnt_sock = *((int*)arg);
     char req_line[SMALL_BUF];
     FILE* clnt_read;
@@ -80,9 +84,10 @@ void* request_handler(void *arg){
     clnt_read = fdopen(clnt_sock, "r");
     clnt_write = fdopen(dup(clnt_sock), "w");
 
+
     fgets(req_line, SMALL_BUF, clnt_read);
 
-    if(strstr(req_line, "HTTP/")==NULL){
+    if (strstr(req_line, "HTTP/") == NULL) {
         send_error(clnt_write);
         fclose(clnt_read);
         fclose(clnt_write);
@@ -90,8 +95,7 @@ void* request_handler(void *arg){
     }
 
     strcpy(method, strtok(req_line, " /"));
-    if(strcmp(method, "GET")!=0) //GET way request?
-    {
+    if (strcmp(method, "GET") != 0) {
         send_error(clnt_write);
         fclose(clnt_read);
         fclose(clnt_write);
@@ -105,8 +109,8 @@ void* request_handler(void *arg){
     send_data(clnt_write, ct, file_name);
 
     return NULL;
-
 }
+
 
 void send_data(FILE* fp, char* ct, char* file_name) {
     char protocol[] = "HTTP/1.0 200 OK\r\n";
@@ -117,35 +121,33 @@ void send_data(FILE* fp, char* ct, char* file_name) {
     FILE* send_file;
 
     // Send the HTTP response header
-    sprintf(cnt_type, "Content-type: %s\r\n\r\n", ct);
+    sprintf(cnt_type, "Content-type:%s\r\n\r\n", ct);
+    printf("File Path: %s\n", file_name);
+
+
     send_file = fopen(file_name, "r");
     if (send_file == NULL) {
+        perror("fopen");
         send_error(fp);
-        return;
+        fclose(fp); // 파일 포인터를 닫아줍니다.
+        return; // 파일 열기에 실패한 경우 함수 종료
     }
-
-    fseek(send_file, 0, SEEK_END);
-    int fsize = ftell(send_file);
-    fseek(send_file, 0, SEEK_SET);
-    sprintf(cnt_len, "Content-length: %d\r\n", fsize);
+    //header info
     fputs(protocol, fp);
     fputs(server, fp);
     fputs(cnt_len, fp);
     fputs(cnt_type, fp);
 
     // Send the content of the requested file
-    while (!feof(send_file)) {
-        size_t read_size = fread(buf, 1, sizeof(buf), send_file);
-        if (read_size < 0) {
-            perror("fread");
-            break;
-        }
-        fwrite(buf, 1, read_size, fp);
+    while(fgets(buf, BUF_SIZE, send_file)!=NULL)
+    {
+        fputs(buf, fp);
         fflush(fp);
     }
-
-    fflush(fp);
     fclose(send_file);
+    fflush(fp);
+    fclose(fp);
+
 }
 
 
@@ -176,10 +178,10 @@ char* content_type(char* file) {
 
     if (strcmp(extension, "html") == 0 || strcmp(extension, "htm") == 0)
         return "text/html";
-    else if (strcmp(extension, "jpg") == 0 || strcmp(extension, "jpeg") == 0)
-        return "image/jpeg";
-    else if (strcmp(extension, "gif") == 0)
-        return "image/gif";
+//    else if (strcmp(extension, "jpg") == 0 || strcmp(extension, "jpeg") == 0)
+//        return "image/jpeg";
+//    else if (strcmp(extension, "gif") == 0)
+//        return "image/gif";
     else
         return "text/plain";
 }
