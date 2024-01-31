@@ -2,17 +2,14 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-
-#include <arpa/inet.h>  // Include this header for inet_ntop
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-
-
 #include <pthread.h>
-
+#include <ndbm.h>
+#include <fcntl.h>
 
 #define BUF_SIZE 9000
-
 #define SMALL_BUF 100
 
 void error_handling(char* message);
@@ -20,13 +17,14 @@ void* request_handler(void *arg);
 void send_error(FILE* fp);
 void send_data(FILE* fp, char* ct, char* file_name);
 char* content_type(char* file);
-
+void handle_post_request(FILE* clnt_read, int content_length, DBM *db);
 
 int main(int argc, char *argv[]) {
     int serv_sock, clnt_sock;
     struct sockaddr_in serv_adr, clnt_adr;
     int clnt_adr_size;
     char buf[BUF_SIZE];
+
 
     pthread_t t_id;
 
@@ -95,20 +93,84 @@ void* request_handler(void *arg) {
     }
 
     strcpy(method, strtok(req_line, " /"));
-    if (strcmp(method, "GET") != 0) {
+    if (strcmp(method, "GET") != 0 && strcmp(method, "HEAD") != 0 && strcmp(method, "POST") != 0) {
         send_error(clnt_write);
         fclose(clnt_read);
         fclose(clnt_write);
         return NULL;
     }
 
+    printf("method 값: %s\n", method);
+
+
     strcpy(file_name, strtok(NULL, " /"));
     strcpy(ct, content_type(file_name));
     fclose(clnt_read);
 
+
+
+    // Content-Length 헤더 파싱
+    int content_length = 0;
+    char* content_length_ptr = strstr(req_line, "Content-Length:");
+    if (content_length_ptr != NULL) {
+        content_length = atoi(content_length_ptr + strlen("Content-Length:"));
+    }
+
+
+    if (strcmp(method, "POST") == 0) {
+        // Handle POST request
+        // Read POST data from clnt_read
+        // Process the data if needed
+
+        //data base-----------------------------
+        DBM *db;
+        int dbm_flags = O_RDWR | O_CREAT;
+        mode_t dbm_mode = 0644;
+
+        // 데이터베이스 열기
+        db = dbm_open("post_data.db", dbm_flags, dbm_mode);
+        if (!db) {
+            fprintf(stderr, "Failed to open the database\n");
+            exit(EXIT_FAILURE);
+        }
+
+
+        //----------------------------------------------------------------
+        handle_post_request(clnt_read, content_length, db);
+
+        // 데이터베이스 닫기
+        dbm_close(db);
+    }
+
+    if (strcmp(method, "HEAD") == 0) {
+        // Handle HEAD request
+        // Send only the header without the content
+    }
+
     send_data(clnt_write, ct, file_name);
 
     return NULL;
+}
+
+void handle_post_request(FILE* clnt_read, int content_length, DBM *db) {
+    char* post_data = (char*)malloc(content_length + 1);
+    fread(post_data, sizeof(char), content_length, clnt_read);
+    post_data[content_length] = '\0'; // Null terminate the string
+
+    // 예시: 데이터베이스에 저장
+    datum key, value;
+    key.dptr = "post_data_key"; // 데이터베이스에서 사용할 키
+    key.dsize = strlen(key.dptr);
+    value.dptr = post_data;
+    value.dsize = strlen(post_data);
+
+    // 데이터베이스에 저장
+    if (dbm_store(db, key, value, DBM_INSERT) != 0) {
+        fprintf(stderr, "Failed to store data in the database\n");
+    }
+
+    // 메모리 해제
+    free(post_data);
 }
 
 
@@ -178,10 +240,10 @@ char* content_type(char* file) {
 
     if (strcmp(extension, "html") == 0 || strcmp(extension, "htm") == 0)
         return "text/html";
-//    else if (strcmp(extension, "jpg") == 0 || strcmp(extension, "jpeg") == 0)
-//        return "image/jpeg";
-//    else if (strcmp(extension, "gif") == 0)
-//        return "image/gif";
+    else if (strcmp(extension, "jpg") == 0 || strcmp(extension, "jpeg") == 0)
+        return "image/jpeg";
+    else if (strcmp(extension, "gif") == 0)
+        return "image/gif";
     else
         return "text/plain";
 }
