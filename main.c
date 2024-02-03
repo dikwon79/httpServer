@@ -173,31 +173,7 @@ void *request_handler(void *arg)
 
     if(strcmp(method, "HEAD") == 0)
     {
-        // Open the file for reading
-        FILE *file = fopen(file_name, "r");
-        if (file == NULL)
-        {
-            // 파일이 없는 경우 에러 처리
-            send_error(clnt_write);
-            fclose(clnt_read);
-            fclose(clnt_write);
-            return NULL;
-        }
 
-        // 파일이 존재하는 경우, 헤더 정보만을 클라이언트에게 전송
-        char protocol[] = "HTTP/1.0 200 OK\r\n";
-        char server[] = "Server: Simple HTTP Server\r\n";
-        char cnt_type[SMALL_BUF];
-        sprintf(cnt_type, "Content-type:%s\r\n\r\n", ct);
-
-        // 헤더 정보 전송
-        fputs(protocol, clnt_write);
-        fputs(server, clnt_write);
-        fputs(cnt_type, clnt_write);
-        fflush(clnt_write);
-
-        // 파일 닫기
-        fclose(file);
     }
 
 
@@ -276,14 +252,19 @@ void send_data(FILE *fp, char *ct, char *file_name)
     if(send_file == NULL)
     {
         perror("fopen");
-        send_error(fp);
-        fclose(fp);    // 파일 포인터를 닫아줍니다.
-        return;        // 파일 열기에 실패한 경우 함수 종료
+        // 파일이 없는 경우에 대한 처리
+        send_file = fopen("404.html", "r");
+        if(send_file == NULL) {
+            perror("404.html fopen");
+            // 대체 파일을 찾을 수 없는 경우에 대한 처리
+            exit(EXIT_FAILURE); // 또는 다른 적절한 처리 방법 사용
+        }
+
     }
     // header info
     fputs(protocol, fp);
     fputs(server, fp);
-    //fputs(cnt_len, fp);
+    fputs(cnt_len, fp);
     fputs(cnt_type, fp);
 
     // Send the content of the requested file
@@ -329,6 +310,8 @@ char *content_type(char *file)
         return "image/jpeg";
     else if(strcmp(extension, "gif") == 0)
         return "image/gif";
+    else if(strcmp(extension, "ico") == 0)
+        return "image/x-icon";
     else
         return "text/plain";
 
