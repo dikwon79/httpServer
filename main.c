@@ -24,7 +24,7 @@ int main(int argc, char *argv[])
 {
     int                serv_sock, clnt_sock;
     struct sockaddr_in serv_adr, clnt_adr;
-    int                clnt_adr_size;
+    socklen_t               clnt_adr_size;
     char               buf[BUF_SIZE];
 
     pthread_t t_id;
@@ -228,7 +228,8 @@ void handle_post_request(FILE *clnt_read, int content_length, DBM *db)
     if (value.dptr == NULL) {
         printf("Key not found in the database.\n");
     } else {
-        printf("Value: %s\n", value.dptr);
+        printf("Value: %s\n", (char *)value.dptr);
+
     }
     free(post_data); // Free allocated memory
 
