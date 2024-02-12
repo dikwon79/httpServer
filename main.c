@@ -9,6 +9,7 @@
 #include <stdnoreturn.h>    // noreturn 헤더 파일 포함
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #define THREAD_POOL_SIZE 4     // 스레드 풀 크기
@@ -16,6 +17,8 @@
 #define BUF_SIZE 9000
 #define SMALL_BUF 1024
 #define base 10
+#define DBM_MODE 0666
+#define GDBM 512
 
 #define magic1 10
 #define magic2 15
@@ -56,6 +59,7 @@ void           thread_pool_add_task(ThreadPool *pool, void (*function)(void *), 
 void           thread_pool_wait_all_tasks_completed(ThreadPool *pool);
 void           thread_pool_shutdown(ThreadPool *pool);
 void           test_task_function(void *arg);
+void           handle_post_request(FILE *clnt_read, int content_length, GDBM_FILE db);
 
 // 스레드 함수
 noreturn void *thread_function(void *arg)
@@ -291,8 +295,7 @@ void request_handler(void *arg)
     // Read the first line of the request
     fgets(req_line, SMALL_BUF, clnt_read);
 
-    // Read the headers until an empty line is encountered
-    long int content_length = 0;
+    int content_length = 0;
     while(fgets(req_contents, SMALL_BUF, clnt_read) != NULL)
     {
         if(strcmp(req_contents, "\r\n") == 0 || strcmp(req_contents, "\n") == 0)
@@ -300,19 +303,14 @@ void request_handler(void *arg)
             break;
         }
         // Find the Content-Length header
-        if(strstr(req_contents, "Content-Length:") == req_contents)
+        if(strstr(req_contents, "Content-Length:") != NULL)
         {
             char *endptr;
-            content_length = strtol(req_contents + strlen("Content-Length:"), &endptr, base);
-            if(*endptr != '\0')
-            {
-                fprintf(stderr, "Error converting string to integer\n");
-                exit(EXIT_FAILURE);
-            }
+            content_length = (int)strtol(req_contents + strlen("Content-Length:"), &endptr, base);
         }
     }
 
-    printf("Content-Length: %ld\n", content_length);
+    printf("Content-Length: %d\n", content_length);
 
     if(strstr(req_line, "HTTP/") == NULL)
     {
@@ -340,8 +338,19 @@ void request_handler(void *arg)
 
     // Extract file name using strtok_r
     token = strtok_r(NULL, " /", &saveptr);
-    // 첫 번째 토큰을 이미 가져왔으므로 루프 시작 전에 파일 이름에 복사합니다.
-    strcpy(file_name, token);
+    if(token != NULL)
+    {
+        // 파일 이름을 가져옵니다.
+        strcpy(file_name, token);
+    }
+    else
+    {
+        // 토큰이 NULL인 경우, 오류 처리를 수행합니다.
+        fprintf(stderr, "Failed to extract file name.\n");
+
+        // 또는 다른 오류 처리 방법을 선택하세요.
+    }
+
     printf("File name1: %s\n", file_name);
     // 다음 토큰을 계속해서 가져와서 파일 이름에 추가합니다.
     while((token = strtok_r(NULL, " /", &saveptr)) != NULL)
@@ -370,7 +379,7 @@ void request_handler(void *arg)
         fprintf(clnt_write, "Content-Type: %s\r\n", ct);
 
         // Print the content length
-        fprintf(clnt_write, "Content-Length: %ld\r\n", content_length);
+        fprintf(clnt_write, "Content-Length: %d\r\n", content_length);
 
         fprintf(clnt_write, "\r\n");    // 빈 줄로 헤더를 끝냅니다.
 
@@ -378,6 +387,25 @@ void request_handler(void *arg)
         fclose(clnt_read);
         fclose(clnt_write);
         return;
+    }
+    if(strcmp(method, "POST") == 0)
+    {
+        // Handle POST request
+        // Read POST data from clnt_read
+        // Process the data if needed
+
+        GDBM_FILE db;
+        char      db_file[] = "post.db";
+        db                  = gdbm_open(db_file, GDBM, GDBM_WRCREAT | GDBM_READER | GDBM_WRITER, DBM_MODE, NULL);
+
+        if(!db)
+        {
+            fprintf(stderr, "Failed to open the database\n");
+            exit(EXIT_FAILURE);
+        }
+
+        //----------------------------------------------------------------
+        handle_post_request(clnt_read, content_length, db);
     }
 
     send_data(clnt_write, ct, file_name);
@@ -495,4 +523,86 @@ const char *content_type(const char *file)
     }
 
     return result;
+}
+
+void handle_post_request(FILE *clnt_read, int content_length, GDBM_FILE db)
+{
+    // content_length 출력
+    printf("Content Length: %d\n", content_length);
+
+    size_t content_length_s = (size_t)content_length;
+    char  *post_data        = (char *)malloc(content_length_s + 1);
+    if(post_data == NULL)
+    {
+        fprintf(stderr, "Failed to allocate memory for post data\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // 데이터 읽기
+    size_t bytes_read = fread(post_data, sizeof(char), content_length_s, clnt_read);
+    if(bytes_read != content_length_s)
+    {
+        fprintf(stderr, "Failed to read data from client\n");
+        exit(EXIT_FAILURE);
+    }
+    post_data[content_length_s] = '\0';    // Null terminate the string
+    printf("Value: %s\n", post_data);
+    // post_data를 키와 값으로 분리
+    char *saveptr;
+    char *key_str = strtok_r(post_data, "&", &saveptr);
+
+    char *saveptr_key;
+
+    char *key1 = strtok_r(key_str, "=", &saveptr_key);
+    char *key2 = strtok_r(NULL, "=", &saveptr_key);
+
+    char *saveptr_value;
+
+    char *value_str = strtok_r(NULL, "&", &saveptr);
+    char *value1    = strtok_r(value_str, "=", &saveptr_value);
+    char *value2    = strtok_r(NULL, "=", &saveptr_value);
+
+    printf("%sKey: %s\n", key1, key2);
+    printf("%sValue: %s\n", value1, value2);
+
+    // key_str과 value_str에는 각각 "post_data_key"와 "this+is+what%3F"가 저장됩니다.
+
+    // 키와 값 설정
+    datum key;
+    datum value;
+    datum result;
+    key.dptr    = key2;
+    key.dsize   = (int)strlen(key2);
+    value.dptr  = value2;
+    value.dsize = (int)strlen(value2);
+
+    //    // 데이터베이스에 저장
+    //    if(gdbm_store(db, key, value, GDBM_INSERT) != 0)
+    //    {
+    //        fprintf(stderr, "Failed to store data in the database: %d\n", gdbm_error(db));
+    //        free(post_data);    // Free allocated memory
+    //        exit(EXIT_FAILURE);
+    //    }
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waggregate-return"
+    result = gdbm_fetch(db, key);
+#pragma GCC diagnostic pop
+    if(result.dptr == NULL)
+    {
+        printf("Key not found in the database.\n");
+
+        // 데이터베이스에 저장
+        if(gdbm_store(db, key, value, GDBM_INSERT) != 0)
+        {
+            fprintf(stderr, "Failed to store data in the database: \n");
+        }
+    }
+    else
+    {
+        printf("dbValue: %s\n", result.dptr);
+    }
+    free(post_data);    // Free allocated memory
+    // 데이터베이스 닫기
+    gdbm_close(db);
 }
