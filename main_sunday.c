@@ -362,22 +362,7 @@ void request_handler(void *arg)
 
     if(strcmp(method, "HEAD") == 0)
     {
-        // Send the HTTP response header
-        fprintf(clnt_write, "HTTP/1.0 200 OK\r\n");
-        fprintf(clnt_write, "Server: Simple HTTP Server\r\n");
-
-        // Calculate and print the content type
-        fprintf(clnt_write, "Content-Type: %s\r\n", ct);
-
-        // Print the content length
-        fprintf(clnt_write, "Content-Length: %ld\r\n", content_length);
-
-        fprintf(clnt_write, "\r\n");    // 빈 줄로 헤더를 끝냅니다.
-
-        fflush(clnt_write);    // 출력 버퍼를 비웁니다.
-        fclose(clnt_read);
-        fclose(clnt_write);
-        return;
+        // Additional processing for HEAD method
     }
 
     send_data(clnt_write, ct, file_name);
@@ -387,55 +372,48 @@ void request_handler(void *arg)
 
 void send_data(FILE *fp, char *ct, char *file_name)
 {
-    if(fp != NULL)
+    char  protocol[] = "HTTP/1.0 200 OK\r\n";
+    char  server[]   = "Server: Simple HTTP Server\r\n";
+    char  cnt_type[SMALL_BUF];
+    char  buf[BUF_SIZE];
+    FILE *send_file;
+
+    // Send the HTTP response header
+    sprintf(cnt_type, "Content-type:%s\r\n\r\n", ct);
+    printf("File Path: %s\n", file_name);
+
+    send_file = fopen(file_name, "re");
+    if(send_file == NULL)
     {
-        char  protocol[] = "HTTP/1.0 200 OK\r\n";
-        char  server[]   = "Server: Simple HTTP Server\r\n";
-        char  cnt_type[SMALL_BUF];
-        char  buf[BUF_SIZE];
-        FILE *send_file;
+        perror("fopen");    // 파일 열기 실패 시 오류 출력
 
-        // Send the HTTP response header
-        sprintf(cnt_type, "Content-type:%s\r\n\r\n", ct);
-        printf("File Path: %s\n", file_name);
-
-        send_file = fopen(file_name, "re");
+        send_file = fopen("404.html", "re");
         if(send_file == NULL)
         {
-            perror("fopen");    // 파일 열기 실패 시 오류 출력
-
-            send_file = fopen("404.html", "re");
-            if(send_file == NULL)
-            {
-                perror("404.html fopen");
-                send_error(fp);
-                return;
-            }
+            perror("404.html fopen");
+            send_error(fp);
+            return;
         }
-
-        // header info
-        fputs(protocol, fp);
-        fputs(server, fp);
-        // fputs(cnt_len, fp); // 콘텐츠 길이는 추후 계산하여 할당
-
-        fputs(cnt_type, fp);
-
-        // Send the content of the requested file
-        while(fgets(buf, BUF_SIZE, send_file) != NULL)
-        {
-            fputs(buf, fp);
-        }
-
-        // 파일 포인터 닫기
-        fclose(send_file);
-
-        // 출력 버퍼 비우기
-        fflush(fp);
     }
-    else
+
+    // header info
+    fputs(protocol, fp);
+    fputs(server, fp);
+    // fputs(cnt_len, fp); // 콘텐츠 길이는 추후 계산하여 할당
+
+    fputs(cnt_type, fp);
+
+    // Send the content of the requested file
+    while(fgets(buf, BUF_SIZE, send_file) != NULL)
     {
-        return;
+        fputs(buf, fp);
     }
+
+    // 파일 포인터 닫기
+    fclose(send_file);
+
+    // 출력 버퍼 비우기
+    fflush(fp);
 }
 
 void send_error(FILE *fp)
